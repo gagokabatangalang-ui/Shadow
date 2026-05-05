@@ -1,143 +1,161 @@
 const { Client, GatewayIntentBits, SlashCommandBuilder, EmbedBuilder, REST, Routes } = require('discord.js');
 const fs = require('fs');
-const express = require('express');
+const { execSync } = require('child_process');
 
-// Initialize Express for Render survival
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.get('/', (req, res) => res.send('Bot is online!'));
-app.get('/health', (req, res) => res.status(200).send('OK'));
-
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`✅ Web server active on port ${PORT}`);
-});
-
-// Bot Configuration
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const KEYS_FILE = './keys.json';
-const OWNER_USERNAME = 'unknown007016'; // Lowercase for safer comparison
+const OWNER_ID = '1419622698639818812';
 
-// Helper Functions
+// GitHub config - ADD YOURS HERE
+const GITHUB_REPO = 'gagokabatangalang-ui/Shadow';
+const GITHUB_BRANCH = 'main';
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN; // Add this to your .env
+
+function generateKey() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let key = 'Shadow-';
+    for (let i = 0; i < 6; i++) key += chars[Math.floor(Math.random() * chars.length)];
+    return key;
+}
+
 function loadKeys() {
-    try {
-        if (!fs.existsSync(KEYS_FILE)) return [];
-        const data = fs.readFileSync(KEYS_FILE, 'utf8');
-        return JSON.parse(data);
-    } catch (e) {
-        console.error("Error loading keys:", e);
-        return [];
-    }
+    if (!fs.existsSync(KEYS_FILE)) fs.writeFileSync(KEYS_FILE, '[]');
+    return JSON.parse(fs.readFileSync(KEYS_FILE, 'utf8'));
 }
 
 function saveKeys(keys) {
     fs.writeFileSync(KEYS_FILE, JSON.stringify(keys, null, 2));
 }
 
-function generateKey() {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let key = 'Shadow-';
-    for (let i = 0; i < 6; i++) {
-        key += chars[Math.floor(Math.random() * chars.length)];
+// Push keys.json to GitHub
+async function pushToGitHub() {
+    try {
+        const content = fs.readFileSync(KEYS_FILE, 'utf8');
+        const base64Content = Buffer.from(content).toString('base64');
+        
+        // Get current file SHA
+        const getRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/keys.json?ref=${GITHUB_BRANCH}`, {
+            headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'User-Agent': 'ShadowBot' }
+        });
+        const fileData = await getRes.json();
+        const sha = fileData.sha;
+
+        // Update file
+        await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/keys.json`, {
+            method: 'PUT',
+            headers: { 
+                'Authorization': `token ${GITHUB_TOKEN}`, 
+                'User-Agent': 'ShadowBot',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                message: 'Update keys.json from bot',
+                content: base64Content,
+                sha: sha,
+                branch: GITHUB_BRANCH
+            })
+        });
+        
+        console.log('Pushed to GitHub!');
+    } catch (err) {
+        console.error('GitHub push failed:', err);
     }
-    return key;
 }
 
-// Commands Registration
-const commands = [
-    new SlashCommandBuilder()
-        .setName('setup')
-        .setDescription('Generate new Shadow Hub key (Owner only)'),
-    new SlashCommandBuilder()
-        .setName('keys')
-        .setDescription('List all active keys (Owner only)'),
-    new SlashCommandBuilder()
-        .setName('revoke')
-        .setDescription('Revoke a key (Owner only)')
-        .addStringOption(opt => opt.setName('key').setDescription('Key to revoke').setRequired(true))
-].map(command => command.toJSON());
-
-// Lifecycle Events
-client.once('ready', async () => {
-    console.log(`✅ Logged in as ${client.user.tag}`);
-    
-    const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
-    try {
-        await rest.put(
-            Routes.applicationCommands(process.env.CLIENT_ID),
-            { body: commands }
-        );
-        console.log('✅ Slash commands registered globally');
-    } catch (error) {
-        console.error('❌ Failed to register commands:', error);
-    }
+client.on('ready', () => {
+    console.log(`Bot ready: ${client.user.tag}`);
 });
 
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
 
-    // Check username (case-insensitive)
-    const isOwner = interaction.user.username.toLowerCase() === OWNER_USERNAME.toLowerCase();
-
-    if (!isOwner) {
-        return interaction.reply({ 
-            content: '❌ You do not have permission to use this command.', 
-            ephemeral: true 
-        });
-    }
-
     if (interaction.commandName === 'setup') {
+        if (interaction.user.id !== OWNER_ID) {
+            return interaction.reply({ content: '❌ Owner only!', ephemeral: true });
+        }
+
         const key = generateKey();
         const keys = loadKeys();
-        
-        const newKey = {
+        keys.push({
             key: key,
-            generatedBy: interaction.user.tag,
-            at: new Date().toISOString(),
-            used: false
-        };
-        
-        keys.push(newKey);
+            generatedBy: interaction.user.id,
+            generatedAt: new Date().toISOString(),
+            used: false,
+            usedBy: null,
+            hwid: null
+        });
         saveKeys(keys);
+        
+        // PUSH TO GITHUB
+        await pushToGitHub();
 
         const embed = new EmbedBuilder()
-            .setTitle('🔑 Key Generated')
-            .addFields(
-                { name: 'Key', value: `\`${key}\`` },
-                { name: 'Generated By', value: `${interaction.user.tag}` }
-            )
+            .setTitle('🔑 Shadow Hub Key Generated')
+            .setDescription(`**Key:** \`${key}\`
+**Game:** Flick/Onetap
+**Generated by:** <@${interaction.user.id}>`)
             .setColor(0x7848FF)
             .setTimestamp();
 
         await interaction.reply({ embeds: [embed] });
+
+        const logChannel = interaction.guild.channels.cache.find(c => c.name === 'key-logs');
+        if (logChannel) logChannel.send({ embeds: [embed] });
     }
 
     if (interaction.commandName === 'keys') {
-        const keys = loadKeys();
-        const activeKeys = keys.filter(k => !k.used);
-        
+        if (interaction.user.id !== OWNER_ID) {
+            return interaction.reply({ content: '❌ Owner only!', ephemeral: true });
+        }
+
+        const keys = loadKeys().filter(k => !k.used);
         const embed = new EmbedBuilder()
             .setTitle('📋 Active Keys')
-            .setDescription(activeKeys.length > 0 ? activeKeys.map(k => `\`${k.key}\``).join('\n') : 'No active keys')
-            .setColor(0x00FF00);
+            .setDescription(keys.length > 0 ? keys.map(k => `\`${k.key}\``).join('\n') : 'No active keys')
+            .setColor(0x7848FF);
 
         await interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
     if (interaction.commandName === 'revoke') {
-        const targetKey = interaction.options.getString('key');
-        let keys = loadKeys();
-        const exists = keys.some(k => k.key === targetKey);
-
-        if (!exists) {
-            return interaction.reply({ content: '❌ Key not found.', ephemeral: true });
+        if (interaction.user.id !== OWNER_ID) {
+            return interaction.reply({ content: '❌ Owner only!', ephemeral: true });
         }
 
-        keys = keys.filter(k => k.key !== targetKey);
-        saveKeys(keys);
+        const key = interaction.options.getString('key');
+        const keys = loadKeys();
+        const idx = keys.findIndex(k => k.key === key);
 
-        await interaction.reply({ content: `✅ Key \`${targetKey}\` has been deleted.`, ephemeral: true });
+        if (idx === -1) {
+            return interaction.reply({ content: '❌ Key not found!', ephemeral: true });
+        }
+
+        keys.splice(idx, 1);
+        saveKeys(keys);
+        
+        // PUSH TO GITHUB
+        await pushToGitHub();
+
+        await interaction.reply({ content: `✅ Key \`${key}\` revoked!`, ephemeral: true });
     }
 });
+
+const commands = [
+    new SlashCommandBuilder().setName('setup').setDescription('Generate new Shadow Hub key (Owner only)'),
+    new SlashCommandBuilder().setName('keys').setDescription('List all active keys (Owner only)'),
+    new SlashCommandBuilder().setName('revoke').setDescription('Revoke a key (Owner only)')
+        .addStringOption(opt => opt.setName('key').setDescription('Key to revoke').setRequired(true))
+];
+
+const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
+
+(async () => {
+    try {
+        await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
+        console.log('Commands registered!');
+    } catch (error) {
+        console.error(error);
+    }
+})();
 
 client.login(process.env.BOT_TOKEN);
