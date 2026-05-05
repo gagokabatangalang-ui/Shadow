@@ -5,7 +5,7 @@ const app = express();
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 const KEYS_FILE = './keys.json';
-const OWNER_USERNAME = 'unknown007016';
+const OWNER_USERNAME = 'Unknown007016';
 
 // HTTP server for UptimeRobot
 const PORT = process.env.PORT || 3000;
@@ -18,8 +18,8 @@ app.get('/health', (req, res) => {
     res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-app.listen(PORT, () => {
-    console.log(`HTTP server running on port ${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`✅ HTTP server running on port ${PORT}`);
 });
 
 function generateKey() {
@@ -42,12 +42,11 @@ function saveKeys(keys) {
     fs.writeFileSync(KEYS_FILE, JSON.stringify(keys, null, 2));
 }
 
-client.on('ready', () => {
-    console.log(`Bot ready: ${client.user.tag}`);
-    console.log(`Bot is online and will run 24/7!`);
-    
-    // Set bot status
-    client.user.setActivity('/setup | 24/7', { type: 'PLAYING' });
+// FIXED: Changed from 'ready' to 'clientReady' or use once()
+client.once('ready', () => {
+    console.log(`✅ Bot ready: ${client.user.tag}`);
+    console.log(`✅ Bot is online and will run 24/7!`);
+    client.user.setActivity('/setup | 24/7', { type: 'Playing' });
 });
 
 client.on('interactionCreate', async (interaction) => {
@@ -57,7 +56,8 @@ client.on('interactionCreate', async (interaction) => {
 
     if (interaction.commandName === 'setup') {
         if (!isOwner) {
-            return interaction.reply({ content: '❌ Owner only!', ephemeral: true });
+            // FIXED: Changed ephemeral to flags: 64
+            return interaction.reply({ content: '❌ Owner only!', flags: 64 });
         }
 
         const key = generateKey();
@@ -80,15 +80,20 @@ client.on('interactionCreate', async (interaction) => {
 
         await interaction.reply({ embeds: [embed] });
 
+        // FIXED: Added error handling for log channel
         const logChannel = interaction.guild.channels.cache.find(c => c.name === 'key-logs');
         if (logChannel) {
-            logChannel.send({ embeds: [embed] });
+            try {
+                await logChannel.send({ embeds: [embed] });
+            } catch (error) {
+                console.error('Failed to send to log channel:', error);
+            }
         }
     }
 
     if (interaction.commandName === 'keys') {
         if (!isOwner) {
-            return interaction.reply({ content: '❌ Owner only!', ephemeral: true });
+            return interaction.reply({ content: '❌ Owner only!', flags: 64 });
         }
 
         const keys = loadKeys().filter(k => !k.used);
@@ -97,12 +102,12 @@ client.on('interactionCreate', async (interaction) => {
             .setDescription(keys.length > 0 ? keys.map(k => `\`${k.key}\``).join('\n') : 'No active keys')
             .setColor(0x7848FF);
 
-        await interaction.reply({ embeds: [embed], ephemeral: true });
+        await interaction.reply({ embeds: [embed], flags: 64 });
     }
 
     if (interaction.commandName === 'revoke') {
         if (!isOwner) {
-            return interaction.reply({ content: '❌ Owner only!', ephemeral: true });
+            return interaction.reply({ content: '❌ Owner only!', flags: 64 });
         }
 
         const key = interaction.options.getString('key');
@@ -110,13 +115,13 @@ client.on('interactionCreate', async (interaction) => {
         const idx = keys.findIndex(k => k.key === key);
 
         if (idx === -1) {
-            return interaction.reply({ content: '❌ Key not found!', ephemeral: true });
+            return interaction.reply({ content: '❌ Key not found!', flags: 64 });
         }
 
         keys.splice(idx, 1);
         saveKeys(keys);
 
-        await interaction.reply({ content: `✅ Key \`${key}\` revoked!`, ephemeral: true });
+        await interaction.reply({ content: `✅ Key \`${key}\` revoked!`, flags: 64 });
     }
 });
 
@@ -132,9 +137,9 @@ const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
 (async () => {
     try {
         await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
-        console.log('Commands registered!');
+        console.log('✅ Commands registered!');
     } catch (error) {
-        console.error(error);
+        console.error('❌ Error registering commands:', error);
     }
 })();
 
