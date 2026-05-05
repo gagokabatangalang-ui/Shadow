@@ -1,10 +1,26 @@
 const { Client, GatewayIntentBits, SlashCommandBuilder, EmbedBuilder, REST, Routes } = require('discord.js');
 const fs = require('fs');
+const express = require('express');
+const app = express();
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 const KEYS_FILE = './keys.json';
-// Changed from ID to Username
-const OWNER_USERNAME = 'Unknown007016'; 
+const OWNER_USERNAME = 'unknown007016';
+
+// HTTP server for UptimeRobot
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+    res.send('Bot is running 24/7!');
+});
+
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.listen(PORT, () => {
+    console.log(`HTTP server running on port ${PORT}`);
+});
 
 function generateKey() {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -28,12 +44,15 @@ function saveKeys(keys) {
 
 client.on('ready', () => {
     console.log(`Bot ready: ${client.user.tag}`);
+    console.log(`Bot is online and will run 24/7!`);
+    
+    // Set bot status
+    client.user.setActivity('/setup | 24/7', { type: 'PLAYING' });
 });
 
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
 
-    // Check username instead of ID
     const isOwner = interaction.user.username === OWNER_USERNAME;
 
     if (interaction.commandName === 'setup') {
